@@ -36,6 +36,7 @@ paramList = ParameterList(name='factName');
 paramList.parameters.append(ParameterPreference(name='--cache', description='Apply cache'))
 paramList.parameters.append(ParameterStringValue(name='--fromFile', description='Path to the fromFile'))
 paramList.parameters.append(ParameterStringValue(name='--perfName', description='Name of the Perf'))
+paramList.parameters.append(ParameterStringValue(name='', mandatory=True, description='factName component'))
 facterOptions.options.append(paramList)
 
 paramList = ParameterList(name='factNameGetattr');
