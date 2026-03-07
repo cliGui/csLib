@@ -1,5 +1,7 @@
 from webcligui_api import LibraryAPI, OperationType, Operation, OperationFolder, ParameterData
 from webcligui_api import ParameterOptionsToList, ParameterList, ParameterStringValue, ParameterPreference
+import subprocess
+import json
 
 operationsData = {}
 
@@ -72,6 +74,12 @@ operationsData['facter.cs'] = {'description': facterDescription, 'parameters': f
 class LibraryAPIImpl(LibraryAPI):
     libraryFolder = OperationFolder(name="csLib")
     libraryFolder.portfolio.append(Operation(name="facter.cs", operation_type=OperationType.PIPX))
+    libraryFolder.portfolio.append(Operation(name="banna.cs", operation_type=OperationType.PIPX))
+    libraryFolder.portfolio.append(Operation(name="soncli.cs", operation_type=OperationType.MODULE))
+    libraryFolder.portfolio.append(Operation(name="facterNEW2.cs", operation_type=OperationType.MODULE))
+    sonFolder = OperationFolder(name="SON Modules")
+    libraryFolder.portfolio.append(sonFolder,)
+    sonFolder.portfolio.append(Operation(name="rtsel.py", operation_type=OperationType.MODULE))
 
     def getOperationHierarchy(self) -> OperationFolder:
         return self.libraryFolder
@@ -89,3 +97,75 @@ class LibraryAPIImpl(LibraryAPI):
         if operationData is None:
             return None
         return operationData['parameters']
+
+    def submitOperation(self, operationBranch: list[str], command: list[str], servers: list[str]):
+        """Execute the operation with the given command and servers."""
+        try:
+            # Look up the operation to get its type
+            operation = self._findOperation(operationBranch)
+            if operation is None:
+                return {'status': 'error', 'message': f'Operation {operationBranch} not found'}
+            
+            # Build the full command based on operation type
+            fullCommand = self._buildCommand(operation, command)
+            
+            print(f"submitOperation: operationBranch={operationBranch}, command={command}, servers={servers}")
+            print(f"submitOperation: fullCommand={fullCommand}")
+            
+            # Execute the command
+            result = subprocess.run(
+                fullCommand,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            
+            return {
+                'status': 'success',
+                'message': 'Operation completed successfully',
+                'stdout': result.stdout,
+                'stderr': result.stderr
+            }
+        
+        except subprocess.CalledProcessError as exc:
+            print(f'submitOperation CalledProcessError: {exc}')
+            return {
+                'status': 'error',
+                'message': f'Operation failed with exit code {exc.returncode}',
+                'stdout': exc.stdout,
+                'stderr': exc.stderr
+            }
+        except Exception as exc:
+            print(f'submitOperation Exception: {exc}')
+            return {
+                'status': 'error',
+                'message': f'Operation failed: {str(exc)}'
+            }
+
+    def _findOperation(self, operationBranch: list[str]) -> Operation:
+        """Find the Operation object in the library folder by branch."""
+        current = self.libraryFolder
+        
+        for name in operationBranch:
+            found = None
+            if hasattr(current, 'portfolio'):
+                for item in current.portfolio:
+                    if item.name == name:
+                        found = item
+                        break
+            
+            if found is None:
+                return None
+            current = found
+        
+        return current if isinstance(current, Operation) else None
+
+    def _buildCommand(self, operation: Operation, command: list[str]) -> list[str]:
+        """Build the full command based on the operation type."""
+        if operation.operation_type == OperationType.PIPX:
+            return ['pipx', 'run'] + command
+        elif operation.operation_type == OperationType.MODULE:
+            return ['python', '-m'] + command
+        else:
+            # Default: just return the command as-is
+            return command
