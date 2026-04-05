@@ -1,9 +1,23 @@
-from webcligui_api import LibraryAPI, OperationType, Operation, OperationFolder, ParameterData
-from webcligui_api import ParameterOptionsToList, ParameterList, ParameterStringValue, ParameterPreference
+from datetime import datetime
 import subprocess
-import json
+from uuid import uuid4
+from pathlib import Path
+
+from webcligui_api import LibraryAPI, OperationType, Operation, OperationFolder, OperationStatusStart, ParameterData
+from webcligui_api import ParameterOptionsToList, ParameterList, ParameterStringValue, ParameterPreference
+
+BYSTAR_DIRECTORY = '/bxo/usg/bystar'
+OPERATION_ROOT_DIRECTORY = f'{BYSTAR_DIRECTORY}/operationTasks'
+CSLIB_DIRECTORY = f'{BYSTAR_DIRECTORY}/develop/csLib'
 
 operationsData = {}
+
+
+'''
+========================================================
+Facter.cs
+========================================================
+'''
 
 facterDescription = '''
 # Facter.cs
@@ -70,6 +84,19 @@ facterOptions.options.append(paramList)
 
 operationsData['facter.cs'] = {'description': facterDescription, 'parameters': facterOptions}
 
+'''
+========================================================
+fvr_operation.py
+========================================================
+'''
+
+fvrOperationDescription = '''
+# fvr_operation.py
+
+A simple test operation that runs in the background and updating its status
+'''
+operationsData['fvr_operation.py'] = {'description': fvrOperationDescription, 'parameters': None}
+
 
 class LibraryAPIImpl(LibraryAPI):
     libraryFolder = OperationFolder(name="csLib")
@@ -80,15 +107,18 @@ class LibraryAPIImpl(LibraryAPI):
     sonFolder = OperationFolder(name="SON Modules")
     libraryFolder.portfolio.append(sonFolder,)
     sonFolder.portfolio.append(Operation(name="rtsel.py", operation_type=OperationType.MODULE))
+    libraryFolder.portfolio.append(Operation(name="fvr_operation.py", operation_type=OperationType.PIPX))
 
     def getOperationHierarchy(self) -> OperationFolder:
         return self.libraryFolder
     
     def getDescription(self, operationBranch: list[str]) -> str:
         operationName = "_".join(operationBranch)
+        if operationName not in operationsData:
+            raise Exception(f'{operationName} not found')
         operationData = operationsData[operationName]
-        if operationData is None:
-            return None
+        if 'description' not in operationData:
+            return 'No description found'
         return operationData['description']
             
     def getParameters(self, operationBranch: list[str]) -> ParameterData:
@@ -169,3 +199,24 @@ class LibraryAPIImpl(LibraryAPI):
         else:
             # Default: just return the command as-is
             return command
+
+    def submitOperation(self, operationBranch: list[str], command: list[str], servers: list[str]) -> OperationStatusStart:
+        # Ignore all parameters, just start fvr_operation.py
+        uuid = str(uuid4())
+        folder = OPERATION_ROOT_DIRECTORY + '/' + uuid
+        Path(folder).mkdir()
+
+        with open(f"{folder}/out.log", "a") as out, open(f"{folder}/err.log", "a") as err:
+          subprocess.Popen(
+              ['python', f'{CSLIB_DIRECTORY}/fvr_operation.py'],
+              cwd=folder,
+              stdout=out,
+              stderr=err,
+              stdin=subprocess.DEVNULL,
+              start_new_session=True
+            )
+        start_time = datetime.now()
+
+        startStatus = OperationStatusStart(uuid=uuid, start_time=start_time, folder=folder)
+        return startStatus
+    
