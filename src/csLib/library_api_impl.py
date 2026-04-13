@@ -8,9 +8,9 @@ from webcligui_api import ParameterOptionsToList, ParameterList, ParameterString
 
 LIBRARY_NAME = "csLib"
 
-BYSTAR_DIRECTORY = '/bxo/usg/bystar'
-OPERATION_ROOT_DIRECTORY = f'{BYSTAR_DIRECTORY}/operationTasks'
-CSLIB_DIRECTORY = f'{BYSTAR_DIRECTORY}/develop/csLib'
+BYSTAR_DIRECTORY = Path('/bxo/usg/bystar').resolve()
+OPERATION_ROOT_DIRECTORY = (BYSTAR_DIRECTORY / 'operationTasks').resolve()
+CSLIB_DIRECTORY = (BYSTAR_DIRECTORY / 'develop' / 'csLib').resolve()
 
 operationsData = {}
 
@@ -137,19 +137,21 @@ class LibraryAPIImpl(LibraryAPI):
         operation = self._findOperation(operationBranch)
         
         # Build the full command based on operation type
-        (uuid, folder, fullCommand) = self._buildCommand(operation, command)
-        if uuid is None or folder is None:
-           raise Exception(f'uuid and/or folder not set for operation {operationBranch}')
+        cmd = self._buildCommand(operation, command)
+        if cmd['uuid'] is None:
+           raise Exception(f'uuid not set for operation {operationBranch}')
 
-        print(f"submitOperation: uuid={uuid}")
+        print(f"submitOperation: uuid={cmd['uuid']}")
         print(f"submitOperation: operationBranch={operationBranch}, command={command}, servers={servers}")
-        print(f"submitOperation: fullCommand={fullCommand}")
-        print(f"submitOperation: folder={folder}")
+        print(f"submitOperation: full_command={cmd['full_command']}")
 
-        with open(f"{folder}/out.log", "a") as out, open(f"{folder}/err.log", "a") as err:
+        run_folder = OPERATION_ROOT_DIRECTORY / cmd['run_folder']
+        out_file = run_folder / 'out.log'
+        err_file = run_folder / 'err.log'
+        with out_file.open("a") as out, err_file.open("a") as err:
           subprocess.Popen(
-              ['python', f'{CSLIB_DIRECTORY}/fvr_operation.py'],
-              cwd=folder,
+              cmd['full_command'],
+              cwd=run_folder,
               stdout=out,
               stderr=err,
               stdin=subprocess.DEVNULL,
@@ -157,7 +159,7 @@ class LibraryAPIImpl(LibraryAPI):
             )
         start_time = datetime.now()
 
-        startStatus = OperationStatusStart(uuid=uuid, start_time=start_time, folder=folder)
+        startStatus = OperationStatusStart(uuid=cmd['uuid'], start_time=start_time, folder=cmd['run_folder'])
         return startStatus
 
     def _findOperation(self, operationBranch: list[str]):
@@ -168,18 +170,20 @@ class LibraryAPIImpl(LibraryAPI):
         raise Exception(f'{operationBranch}: operation not found')
       return result 
 
-    def _buildCommand(self, operation: Operation, command: list[str]) -> list[str]:
+    def _buildCommand(self, operation: Operation, command: list[str]):
         """Build the full command based on the operation type."""
         match operation.operation_type:
           case OperationType.PIPX:
-            return (None, None, ['pipx', 'run'] + command)
+            return { 'uuid': None, 'run_folder': None, 'full_command': ['pipx', 'run'] + command }
           case OperationType.MODULE:
-            return (None, None, ['python', '-m'] + command)
+            return { 'uuid': None, 'run_folder': None, 'full_command': ['python', '-m'] + command }
           case OperationType.PYTHON:
             uuid = str(uuid4())
-            folder = OPERATION_ROOT_DIRECTORY + '/' + uuid
-            Path(folder).mkdir()
-            return (uuid, folder, ['python'] + command)
+            folder = OPERATION_ROOT_DIRECTORY / uuid
+            folder.mkdir()
+            python_operation = CSLIB_DIRECTORY / command[0]
+            command[0] = str(python_operation)
+            return { 'uuid': uuid, 'run_folder': uuid, 'full_command': ['python'] + command }
           case _:
             raise Exception(f'Unknown OperationType {operation.operation_type}')
     
